@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>AR Detect</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  video,canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
+  .chip{position:fixed;color:#00ff88;font:14px/1.4 system-ui;background:rgba(0,0,0,.55);padding:6px 12px;border-radius:10px;border:1px solid #00ff8833}
+  #status{top:12px;left:12px}
+  #fps{top:12px;right:12px}
+  #flip{bottom:24px;right:20px;font-size:22px;width:54px;height:54px;border-radius:50%;padding:0;cursor:pointer}
+  #ctl{position:fixed;bottom:24px;left:12px;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100vw - 100px)}
+  #ctl[hidden],#labels[hidden]{display:none}
+  #ctl .chip{position:static;cursor:pointer}
+  #labels{position:static;width:min(62vw,420px);outline:none}
+</style>
+</head>
+<body>
+<video id="cam" autoplay muted playsinline></video>
+<canvas id="hud"></canvas>
+<div id="status" class="chip">กำลังโหลดโมเดล…</div>
+<div id="fps" class="chip" hidden></div>
+<button id="flip" class="chip" hidden>🔄</button>
+<div id="ctl" hidden>
+  <button id="mode" class="chip">โหมด: เร็ว (80 ชนิด)</button>
+  <input id="labels" class="chip" hidden value="ปลั๊กไฟ, esp32, raspberry pi, ขวดน้ำ, คอม, แอปเปิ้ล">
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2/dist/coco-ssd.min.js"></script>
+<script>
+const cam = document.getElementById('cam'), hud = document.getElementById('hud');
+const statusEl = document.getElementById('status'), fpsEl = document.getElementById('fps');
+const flipBtn = document.getElementById('flip'), ctx = hud.getContext('2d');
+const ctlEl = document.getElementById('ctl'), modeBtn = document.getElementById('mode'), labelsIn = document.getElementById('labels');
+
+const TH = {person:'คน',bicycle:'จักรยาน',car:'รถยนต์',motorcycle:'มอเตอร์ไซค์',airplane:'เครื่องบิน',bus:'รถเมล์',train:'รถไฟ',truck:'รถบรรทุก',boat:'เรือ','traffic light':'ไฟจราจร','fire hydrant':'หัวดับเพลิง','stop sign':'ป้ายหยุด','parking meter':'มิเตอร์จอดรถ',bench:'ม้านั่ง',bird:'นก',cat:'แมว',dog:'หมา',horse:'ม้า',sheep:'แกะ',cow:'วัว',elephant:'ช้าง',bear:'หมี',zebra:'ม้าลาย',giraffe:'ยีราฟ',backpack:'เป้',umbrella:'ร่ม',handbag:'กระเป๋าถือ',tie:'เนคไท',suitcase:'กระเป๋าเดินทาง',frisbee:'จานร่อน',skis:'สกี',snowboard:'สโนว์บอร์ด','sports ball':'ลูกบอล',kite:'ว่าว','baseball bat':'ไม้เบสบอล','baseball glove':'ถุงมือเบสบอล',skateboard:'สเก็ตบอร์ด',surfboard:'เซิร์ฟบอร์ด','tennis racket':'ไม้เทนนิส',bottle:'ขวด','wine glass':'แก้วไวน์',cup:'แก้ว',fork:'ส้อม',knife:'มีด',spoon:'ช้อน',bowl:'ชาม',banana:'กล้วย',apple:'แอปเปิล',sandwich:'แซนด์วิช',orange:'ส้ม',broccoli:'บรอกโคลี',carrot:'แครอท','hot dog':'ฮอตดอก',pizza:'พิซซ่า',donut:'โดนัท',cake:'เค้ก',chair:'เก้าอี้',couch:'โซฟา','potted plant':'ต้นไม้กระถาง',bed:'เตียง','dining table':'โต๊ะกินข้าว',toilet:'ชักโครก',tv:'ทีวี',laptop:'โน้ตบุ๊ก',mouse:'เมาส์',remote:'รีโมต',keyboard:'คีย์บอร์ด','cell phone':'มือถือ',microwave:'ไมโครเวฟ',oven:'เตาอบ',toaster:'เครื่องปิ้งขนมปัง',sink:'ซิงก์',refrigerator:'ตู้เย็น',book:'หนังสือ',clock:'นาฬิกา',vase:'แจกัน',scissors:'กรรไกร','teddy bear':'ตุ๊กตาหมี','hair drier':'ไดร์เป่าผม',toothbrush:'แปรงสีฟัน'};
+
+// พิมพ์ไทยในโหมด zero-shot ได้ — แปลงเป็น prompt อังกฤษให้ (โมเดลรู้แค่อังกฤษ)
+const TH2EN = {'ปลั๊กไฟ':'power outlet','ปลั๊ก':'power plug','สายไฟ':'electric cable','esp32':'esp32 microcontroller board','pi':'raspberry pi board','raspberry pi':'raspberry pi board','บอร์ด':'electronic circuit board','ขวดน้ำ':'water bottle','ขวด':'bottle','คอม':'laptop computer','คอมพิวเตอร์':'desktop computer','โน้ตบุ๊ก':'laptop','จอ':'computer monitor','คีย์บอร์ด':'computer keyboard','เมาส์':'computer mouse','แอปเปิ้ล':'apple','แอปเปิล':'apple','มือถือ':'mobile phone','โทรศัพท์':'mobile phone','หูฟัง':'headphones','ปากกา':'pen','แก้วน้ำ':'drinking glass','รองเท้า':'shoe','พัดลม':'electric fan'};
+
+function hueOf(name) {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+function drawBoxes(preds) {
+  const lw = Math.max(2, hud.width / 500), fs = Math.max(13, hud.width / 55);
+  ctx.textBaseline = 'middle';
+  for (const p of preds) {
+    const [x, y, w, h] = p.bbox, hue = hueOf(p.class);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = `hsl(${hue} 75% 50%)`;
+    ctx.fillStyle = `hsl(${hue} 75% 50% / .12)`;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, Math.min(fs * 0.6, w / 4, h / 4));
+    ctx.fill(); ctx.stroke();
+    const text = `${TH[p.class] || p.class} ${Math.round(p.score * 100)}%`;
+    ctx.font = `600 ${fs}px system-ui, sans-serif`;
+    const tw = ctx.measureText(text).width, padX = fs * 0.55, ph = fs * 1.7;
+    let ly = y - ph - lw;
+    if (ly < 4) ly = y + lw;
+    const lx = Math.max(4, Math.min(x, hud.width - tw - padX * 2 - 4));
+    ctx.beginPath();
+    ctx.roundRect(lx, ly, tw + padX * 2, ph, ph / 2);
+    ctx.fillStyle = `hsl(${hue} 75% 45%)`;
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, lx + padX, ly + ph / 2 + fs * 0.06);
+  }
+}
+
+let stream = null, facing = 'environment';
+async function startCam() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: {facingMode: facing, width: {ideal: 1280}, height: {ideal: 720}}, audio: false
+  });
+  cam.srcObject = stream;
+  await new Promise(r => cam.onloadedmetadata = r);
+  hud.width = cam.videoWidth; hud.height = cam.videoHeight;
+}
+
+// ---------- โหมดเร็ว: COCO-SSD ----------
+let cocoModel = null, mode = 'coco';
+async function cocoLoop() {
+  if (mode !== 'coco') return;
+  const t0 = performance.now();
+  const preds = await cocoModel.detect(cam, 20, 0.5);
+  if (mode !== 'coco') return;
+  ctx.clearRect(0, 0, hud.width, hud.height);
+  drawBoxes(preds);
+  fpsEl.textContent = Math.round(1000 / (performance.now() - t0)) + ' fps';
+  requestAnimationFrame(cocoLoop);
+}
+
+// ---------- โหมดพิมพ์เอง: OWLv2 zero-shot ----------
+// ponytail: owlv2 ช้า (วินาทีต่อเฟรม) — ถ้าอยากเรียลไทม์ค่อยเทรน YOLO custom
+const ZS_MODEL = 'Xenova/owlv2-base-patch16-ensemble', ZS_TH = 0.2;
+let zsD = null;
+async function loadZS() {
+  const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3');
+  try { return await pipeline('zero-shot-object-detection', ZS_MODEL, {device: 'webgpu'}); }
+  catch (e) { console.warn('webgpu ไม่ได้ ใช้ wasm', e); return await pipeline('zero-shot-object-detection', ZS_MODEL); }
+}
+function iouOf(a, b) {
+  const ix = Math.max(0, Math.min(a.bbox[0] + a.bbox[2], b.bbox[0] + b.bbox[2]) - Math.max(a.bbox[0], b.bbox[0]));
+  const iy = Math.max(0, Math.min(a.bbox[1] + a.bbox[3], b.bbox[1] + b.bbox[3]) - Math.max(a.bbox[1], b.bbox[1]));
+  const inter = ix * iy;
+  return inter / (a.bbox[2] * a.bbox[3] + b.bbox[2] * b.bbox[3] - inter);
+}
+function nms(preds) {
+  const out = [];
+  for (const p of preds.sort((a, b) => b.score - a.score))
+    if (!out.some(o => o.class === p.class && iouOf(o, p) > 0.5)) out.push(p);
+  return out;
+}
+function parseLabels(str) {
+  return str.split(',').map(s => s.trim()).filter(Boolean)
+    .map(s => ({display: s, en: TH2EN[s.toLowerCase()] || s}));
+}
+function zsToPred(o, items) {
+  const it = items.find(i => i.en === o.label);
+  return {bbox: [o.box.xmin, o.box.ymin, o.box.xmax - o.box.xmin, o.box.ymax - o.box.ymin],
+          class: it ? it.display : o.label, score: o.score};
+}
+const fc = document.createElement('canvas');
+function grabFrame() {
+  fc.width = cam.videoWidth; fc.height = cam.videoHeight;
+  fc.getContext('2d').drawImage(cam, 0, 0);
+  return fc.toDataURL('image/jpeg', 0.8);
+}
+async function zsLoop() {
+  if (mode !== 'zs') return;
+  try {
+    const t0 = performance.now();
+    const items = parseLabels(labelsIn.value);
+    if (items.length) {
+      const out = await zsD(grabFrame(), items.map(i => i.en), {threshold: ZS_TH, top_k: 24});
+      if (mode !== 'zs') return;
+      ctx.clearRect(0, 0, hud.width, hud.height);
+      drawBoxes(nms(out.map(o => zsToPred(o, items))));
+      fpsEl.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' วิ/เฟรม';
+    }
+    setTimeout(zsLoop, 30);
+  } catch (e) {
+    statusEl.hidden = false; statusEl.textContent = 'zero-shot พัง: ' + e.message; console.error(e);
+  }
+}
+
+async function switchMode() {
+  if (mode === 'coco') {
+    mode = 'zs'; modeBtn.textContent = 'โหมด: พิมพ์เอง 🐢'; labelsIn.hidden = false;
+    if (!zsD) {
+      statusEl.hidden = false; statusEl.textContent = 'โหลดโมเดล zero-shot ครั้งแรก (~100MB รอหน่อย)…';
+      zsD = await loadZS();
+      statusEl.hidden = true;
+    }
+    zsLoop();
+  } else {
+    mode = 'coco'; modeBtn.textContent = 'โหมด: เร็ว (80 ชนิด)'; labelsIn.hidden = true;
+    cocoLoop();
+  }
+}
+
+// ponytail: ?img=file.jpg[&labels=a,b] = still-image self-check mode, used by tests
+async function testImage(src, labels) {
+  cam.style.display = 'none';
+  hud.style.objectFit = 'contain';
+  const img = new Image(); img.src = src; await img.decode();
+  hud.width = img.naturalWidth; hud.height = img.naturalHeight;
+  let preds;
+  if (labels) {
+    statusEl.textContent = 'โหลด zero-shot…';
+    const zs = await loadZS();
+    const items = parseLabels(labels);
+    const out = await zs(new URL(src, location.href).href, items.map(i => i.en), {threshold: ZS_TH, top_k: 24});
+    preds = nms(out.map(o => zsToPred(o, items)));
+  } else {
+    preds = await cocoModel.detect(img, 20, 0.5);
+  }
+  ctx.drawImage(img, 0, 0);
+  drawBoxes(preds);
+  statusEl.hidden = true;
+  console.log('TEST_RESULT ' + JSON.stringify(preds.map(p => [p.class, +p.score.toFixed(2)])));
+}
+
+(async () => {
+  try {
+    cocoModel = await cocoSsd.load();
+    const q = new URLSearchParams(location.search);
+    if (q.get('img')) return testImage(q.get('img'), q.get('labels'));
+    statusEl.textContent = 'ขอสิทธิ์กล้อง…';
+    await startCam();
+    statusEl.hidden = true; fpsEl.hidden = false; flipBtn.hidden = false; ctlEl.hidden = false;
+    flipBtn.onclick = async () => { facing = facing === 'environment' ? 'user' : 'environment'; await startCam(); };
+    modeBtn.onclick = switchMode;
+    cocoLoop();
+  } catch (e) {
+    statusEl.textContent = 'เปิดไม่สำเร็จ: ' + e.message;
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>
