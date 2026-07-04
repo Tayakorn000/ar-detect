@@ -18,6 +18,12 @@ python3 -m http.server 8787
 
 โมเดลโหลดจาก CDN — ต้องมีเน็ต
 
+## หน้า AR (`ar.html`)
+
+โมเดล 3D วงจร ESP32+เบรดบอร์ด+โมดูลเซนเซอร์ — เปิดบนมือถือแล้วแตะปุ่ม AR เพื่อวางบนโต๊ะจริง (iPhone = Quick Look ผ่าน `circuit.usdz`, Android = Scene Viewer ผ่าน `circuit.glb`)
+
+แก้โมเดล: แก้ `make_model.py` → รัน (ต้องมี `trimesh`) → ได้ `circuit.glb` → เปิด `make_usdz.html` ผ่าน localhost หนึ่งครั้ง ได้ `circuit.usdz` ดาวน์โหลดมา
+
 ## เทส
 
 ```

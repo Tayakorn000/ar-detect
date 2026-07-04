@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- แปลง circuit.glb -> circuit.usdz (สำหรับ iPhone Quick Look) — เปิดหน้านี้แล้วไฟล์จะดาวน์โหลดเอง -->
+<meta charset="utf-8">
+<title>glb → usdz</title>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {USDZExporter} from 'three/addons/exporters/USDZExporter.js';
+const gltf = await new GLTFLoader().loadAsync('circuit.glb');
+const data = await new USDZExporter().parse(gltf.scene);
+const a = document.createElement('a');
+a.download = 'circuit.usdz';
+a.href = URL.createObjectURL(new Blob([data], {type: 'model/vnd.usdz+zip'}));
+a.click();
+console.log('USDZ_DONE ' + data.byteLength);
+</script>

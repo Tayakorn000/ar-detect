@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AR วงจร ESP32</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#15171c;font-family:system-ui}
+  model-viewer{width:100%;height:100%}
+  .chip{position:fixed;color:#eee;background:rgba(0,0,0,.55);border:1px solid #ffffff22;border-radius:10px;padding:6px 12px;font-size:14px}
+  #back{top:12px;left:12px;text-decoration:none}
+  #tip{bottom:16px;left:50%;transform:translateX(-50%);text-align:center;max-width:80vw}
+</style>
+</head>
+<body>
+<model-viewer src="circuit.glb" ios-src="circuit.usdz"
+  ar ar-modes="webxr scene-viewer quick-look"
+  camera-controls auto-rotate shadow-intensity="1" exposure="1.1"
+  alt="วงจร ESP32 ต่อโมดูลเซนเซอร์บนเบรดบอร์ด"></model-viewer>
+<a id="back" class="chip" href="./">← กล้อง detect</a>
+<div id="tip" class="chip">เปิดบนมือถือแล้วแตะปุ่ม AR มุมขวาล่าง → วางวงจรบนโต๊ะจริงได้เลย</div>
+</body>
+</html>
