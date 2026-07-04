@@ -10,7 +10,11 @@
   .chip{position:fixed;color:#00ff88;font:14px/1.4 system-ui;background:rgba(0,0,0,.55);padding:6px 12px;border-radius:10px;border:1px solid #00ff8833}
   #status{top:12px;left:12px}
   #fps{top:12px;right:12px}
-  #flip{bottom:24px;right:20px;font-size:22px;width:54px;height:54px;border-radius:50%;padding:0;cursor:pointer}
+  #flip,#snap,#voice{font-size:22px;width:54px;height:54px;border-radius:50%;padding:0;cursor:pointer}
+  #flip{bottom:24px;right:20px}
+  #snap{bottom:88px;right:20px}
+  #voice{bottom:152px;right:20px}
+  #count{top:12px;left:50%;transform:translateX(-50%);max-width:70vw;text-align:center}
   #ctl{position:fixed;bottom:24px;left:12px;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100vw - 100px)}
   #ctl[hidden],#labels[hidden]{display:none}
   #ctl .chip{position:static;cursor:pointer}
@@ -23,6 +27,9 @@
 <div id="status" class="chip">กำลังโหลดโมเดล…</div>
 <div id="fps" class="chip" hidden></div>
 <button id="flip" class="chip" hidden>🔄</button>
+<button id="snap" class="chip" hidden>📸</button>
+<button id="voice" class="chip" hidden>🔇</button>
+<div id="count" class="chip" hidden></div>
 <div id="ctl" hidden>
   <button id="mode" class="chip">โหมด: เร็ว (80 ชนิด)</button>
   <input id="labels" class="chip" hidden value="ปลั๊กไฟ, esp32, raspberry pi, ขวดน้ำ, คอม, แอปเปิ้ล">
@@ -34,6 +41,7 @@ const cam = document.getElementById('cam'), hud = document.getElementById('hud')
 const statusEl = document.getElementById('status'), fpsEl = document.getElementById('fps');
 const flipBtn = document.getElementById('flip'), ctx = hud.getContext('2d');
 const ctlEl = document.getElementById('ctl'), modeBtn = document.getElementById('mode'), labelsIn = document.getElementById('labels');
+const snapBtn = document.getElementById('snap'), voiceBtn = document.getElementById('voice'), countEl = document.getElementById('count');
 
 const TH = {person:'คน',bicycle:'จักรยาน',car:'รถยนต์',motorcycle:'มอเตอร์ไซค์',airplane:'เครื่องบิน',bus:'รถเมล์',train:'รถไฟ',truck:'รถบรรทุก',boat:'เรือ','traffic light':'ไฟจราจร','fire hydrant':'หัวดับเพลิง','stop sign':'ป้ายหยุด','parking meter':'มิเตอร์จอดรถ',bench:'ม้านั่ง',bird:'นก',cat:'แมว',dog:'หมา',horse:'ม้า',sheep:'แกะ',cow:'วัว',elephant:'ช้าง',bear:'หมี',zebra:'ม้าลาย',giraffe:'ยีราฟ',backpack:'เป้',umbrella:'ร่ม',handbag:'กระเป๋าถือ',tie:'เนคไท',suitcase:'กระเป๋าเดินทาง',frisbee:'จานร่อน',skis:'สกี',snowboard:'สโนว์บอร์ด','sports ball':'ลูกบอล',kite:'ว่าว','baseball bat':'ไม้เบสบอล','baseball glove':'ถุงมือเบสบอล',skateboard:'สเก็ตบอร์ด',surfboard:'เซิร์ฟบอร์ด','tennis racket':'ไม้เทนนิส',bottle:'ขวด','wine glass':'แก้วไวน์',cup:'แก้ว',fork:'ส้อม',knife:'มีด',spoon:'ช้อน',bowl:'ชาม',banana:'กล้วย',apple:'แอปเปิล',sandwich:'แซนด์วิช',orange:'ส้ม',broccoli:'บรอกโคลี',carrot:'แครอท','hot dog':'ฮอตดอก',pizza:'พิซซ่า',donut:'โดนัท',cake:'เค้ก',chair:'เก้าอี้',couch:'โซฟา','potted plant':'ต้นไม้กระถาง',bed:'เตียง','dining table':'โต๊ะกินข้าว',toilet:'ชักโครก',tv:'ทีวี',laptop:'โน้ตบุ๊ก',mouse:'เมาส์',remote:'รีโมต',keyboard:'คีย์บอร์ด','cell phone':'มือถือ',microwave:'ไมโครเวฟ',oven:'เตาอบ',toaster:'เครื่องปิ้งขนมปัง',sink:'ซิงก์',refrigerator:'ตู้เย็น',book:'หนังสือ',clock:'นาฬิกา',vase:'แจกัน',scissors:'กรรไกร','teddy bear':'ตุ๊กตาหมี','hair drier':'ไดร์เป่าผม',toothbrush:'แปรงสีฟัน'};
 
@@ -82,16 +90,64 @@ async function startCam() {
   hud.width = cam.videoWidth; hud.height = cam.videoHeight;
 }
 
-// ---------- โหมดเร็ว: COCO-SSD ----------
-let cocoModel = null, mode = 'coco';
-async function cocoLoop() {
+// ---------- เสียงพูดไทยตอนเจอของใหม่ ----------
+let voiceOn = false;
+const lastSpoken = {};
+function announce(cls) {
+  if (!voiceOn) return;
+  const now = performance.now();
+  if (lastSpoken[cls] && now - lastSpoken[cls] < 4000) return;
+  lastSpoken[cls] = now;
+  const u = new SpeechSynthesisUtterance(TH[cls] || cls);
+  u.lang = 'th-TH'; u.rate = 1.1;
+  speechSynthesis.speak(u);
+}
+
+// ---------- ตัวนับวัตถุ ----------
+function updateCount(preds) {
+  const m = {};
+  for (const p of preds) { const n = TH[p.class] || p.class; m[n] = (m[n] || 0) + 1; }
+  countEl.textContent = Object.entries(m).map(([k, v]) => v > 1 ? `${k}×${v}` : k).join(' · ');
+  countEl.hidden = !preds.length;
+}
+
+// ---------- tracking smoothing: กรอบไหลตามของ ไม่กระตุก ----------
+// ponytail: greedy class+IoU match ก็พอ — ถ้าของชนิดเดียวกันเดินสลับตัวกันค่อยว่ากัน
+let tracks = [];
+function smooth(preds) {
+  for (const t of tracks) { t.miss++; t.matched = false; }
+  for (const p of preds) {
+    let best = null, bi = 0.3;
+    for (const t of tracks) {
+      if (t.class !== p.class || t.matched) continue;
+      const i = iouOf(t, p);
+      if (i > bi) { bi = i; best = t; }
+    }
+    if (best) {
+      for (let k = 0; k < 4; k++) best.bbox[k] += (p.bbox[k] - best.bbox[k]) * 0.4;
+      best.score = p.score; best.miss = 0; best.matched = true;
+    } else {
+      tracks.push({class: p.class, score: p.score, bbox: [...p.bbox], miss: 0, matched: true});
+      announce(p.class);
+    }
+  }
+  tracks = tracks.filter(t => t.miss < 4);
+  return tracks;
+}
+
+// ---------- โหมดเร็ว: COCO-SSD (cap 30fps) ----------
+let cocoModel = null, mode = 'coco', lastDraw = 0;
+async function cocoLoop(ts = 0) {
   if (mode !== 'coco') return;
-  const t0 = performance.now();
+  if (ts - lastDraw < 1000 / 30) return requestAnimationFrame(cocoLoop);
   const preds = await cocoModel.detect(cam, 20, 0.5);
   if (mode !== 'coco') return;
+  if (lastDraw) fpsEl.textContent = Math.round(1000 / (ts - lastDraw)) + ' fps';
+  lastDraw = ts;
+  const shown = smooth(preds);
   ctx.clearRect(0, 0, hud.width, hud.height);
-  drawBoxes(preds);
-  fpsEl.textContent = Math.round(1000 / (performance.now() - t0)) + ' fps';
+  drawBoxes(shown);
+  updateCount(shown);
   requestAnimationFrame(cocoLoop);
 }
 
@@ -133,14 +189,18 @@ function grabFrame() {
 }
 async function zsLoop() {
   if (mode !== 'zs') return;
+  if (document.hidden) return setTimeout(zsLoop, 500);
   try {
     const t0 = performance.now();
     const items = parseLabels(labelsIn.value);
     if (items.length) {
       const out = await zsD(grabFrame(), items.map(i => i.en), {threshold: ZS_TH, top_k: 24});
       if (mode !== 'zs') return;
+      const preds = nms(out.map(o => zsToPred(o, items)));
       ctx.clearRect(0, 0, hud.width, hud.height);
-      drawBoxes(nms(out.map(o => zsToPred(o, items))));
+      drawBoxes(preds);
+      updateCount(preds);
+      preds.forEach(p => announce(p.class));
       fpsEl.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' วิ/เฟรม';
     }
     setTimeout(zsLoop, 30);
@@ -150,6 +210,7 @@ async function zsLoop() {
 }
 
 async function switchMode() {
+  tracks = [];
   if (mode === 'coco') {
     mode = 'zs'; modeBtn.textContent = 'โหมด: พิมพ์เอง 🐢'; labelsIn.hidden = false;
     if (!zsD) {
@@ -182,6 +243,7 @@ async function testImage(src, labels) {
   }
   ctx.drawImage(img, 0, 0);
   drawBoxes(preds);
+  updateCount(preds);
   statusEl.hidden = true;
   console.log('TEST_RESULT ' + JSON.stringify(preds.map(p => [p.class, +p.score.toFixed(2)])));
 }
@@ -194,8 +256,26 @@ async function testImage(src, labels) {
     statusEl.textContent = 'ขอสิทธิ์กล้อง…';
     await startCam();
     statusEl.hidden = true; fpsEl.hidden = false; flipBtn.hidden = false; ctlEl.hidden = false;
-    flipBtn.onclick = async () => { facing = facing === 'environment' ? 'user' : 'environment'; await startCam(); };
+    snapBtn.hidden = false; voiceBtn.hidden = !('speechSynthesis' in window);
+    flipBtn.onclick = async () => { facing = facing === 'environment' ? 'user' : 'environment'; tracks = []; await startCam(); };
     modeBtn.onclick = switchMode;
+    snapBtn.onclick = () => {
+      const c = document.createElement('canvas');
+      c.width = hud.width; c.height = hud.height;
+      const g = c.getContext('2d');
+      g.drawImage(cam, 0, 0, c.width, c.height);
+      g.drawImage(hud, 0, 0);
+      const a = document.createElement('a');
+      a.download = 'ar-detect-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+      a.href = c.toDataURL('image/png');
+      a.click();
+    };
+    voiceBtn.onclick = () => {
+      voiceOn = !voiceOn;
+      voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
+      if (voiceOn) { const u = new SpeechSynthesisUtterance('เปิดเสียงแล้ว'); u.lang = 'th-TH'; speechSynthesis.speak(u); }
+      else speechSynthesis.cancel();
+    };
     cocoLoop();
   } catch (e) {
     statusEl.textContent = 'เปิดไม่สำเร็จ: ' + e.message;
