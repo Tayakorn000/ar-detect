@@ -125,10 +125,10 @@ function smooth(preds) {
       if (i > bi) { bi = i; best = t; }
     }
     if (best) {
-      for (let k = 0; k < 4; k++) best.bbox[k] += (p.bbox[k] - best.bbox[k]) * 0.4;
+      best.to = [...p.bbox];
       best.score = p.score; best.miss = 0; best.matched = true;
     } else {
-      tracks.push({class: p.class, score: p.score, bbox: [...p.bbox], miss: 0, matched: true});
+      tracks.push({class: p.class, score: p.score, bbox: [...p.bbox], to: [...p.bbox], miss: 0, matched: true});
       announce(p.class);
     }
   }
@@ -136,20 +136,27 @@ function smooth(preds) {
   return tracks;
 }
 
-// ---------- โหมดเร็ว: COCO-SSD (cap 30fps) ----------
-let cocoModel = null, mode = 'coco', lastDraw = 0;
-async function cocoLoop(ts = 0) {
+// ---------- โหมดเร็ว: COCO-SSD ----------
+// ponytail: ตัวทำเครื่องร้อนคือโมเดล ไม่ใช่การวาด — detect ~7 ครั้ง/วิ พอ
+// กรอบ lerp เข้าหาเป้าทุกเฟรมวาด (30fps) เลยยังลื่นเท่าเดิมแต่ GPU ทำงานน้อยลง ~4 เท่า
+const DETECT_MS = 150, DRAW_MS = 1000 / 30;
+let cocoModel = null, mode = 'coco', lastDetect = 0, lastDraw = 0, detecting = false;
+function cocoLoop(ts = 0) {
   if (mode !== 'coco') return;
-  if (ts - lastDraw < 1000 / 30) return requestAnimationFrame(cocoLoop);
-  const preds = await cocoModel.detect(cam, 20, 0.5);
-  if (mode !== 'coco') return;
+  requestAnimationFrame(cocoLoop);
+  if (!detecting && ts - lastDetect >= DETECT_MS) {
+    detecting = true; lastDetect = ts;
+    cocoModel.detect(cam, 20, 0.5).then(preds => {
+      detecting = false;
+      if (mode === 'coco') updateCount(smooth(preds));
+    }, e => { detecting = false; console.error(e); });
+  }
+  if (ts - lastDraw < DRAW_MS) return;
   if (lastDraw) fpsEl.textContent = Math.round(1000 / (ts - lastDraw)) + ' fps';
   lastDraw = ts;
-  const shown = smooth(preds);
+  for (const t of tracks) for (let k = 0; k < 4; k++) t.bbox[k] += (t.to[k] - t.bbox[k]) * 0.25;
   ctx.clearRect(0, 0, hud.width, hud.height);
-  drawBoxes(shown);
-  updateCount(shown);
-  requestAnimationFrame(cocoLoop);
+  drawBoxes(tracks);
 }
 
 // ---------- โหมดพิมพ์เอง: OWLv2 zero-shot ----------
@@ -204,7 +211,7 @@ async function zsLoop() {
       preds.forEach(p => announce(p.class));
       fpsEl.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' วิ/เฟรม';
     }
-    setTimeout(zsLoop, 30);
+    setTimeout(zsLoop, 300); // พักให้ชิปเย็นระหว่างเฟรม — เฟรมนึงกินเป็นวิอยู่แล้ว ไม่ทันสังเกต
   } catch (e) {
     statusEl.hidden = false; statusEl.textContent = 'zero-shot พัง: ' + e.message; console.error(e);
   }
