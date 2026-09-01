@@ -4,21 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AR วงจร ESP32</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
 <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
 <style>
-  html,body{margin:0;height:100%;background:#15171c;font-family:system-ui}
-  model-viewer{width:100%;height:100%}
-  .chip{position:fixed;color:#eee;background:rgba(0,0,0,.55);border:1px solid #ffffff22;border-radius:10px;padding:6px 12px;font-size:14px}
-  #back{top:12px;left:12px;text-decoration:none}
-  #tip{bottom:16px;left:50%;transform:translateX(-50%);text-align:center;max-width:80vw}
+  :root{--bg:#0c0b0a;--ink:#ece7dd;--ink-dim:#948d7e;--accent:#ff4d2e;--line:rgba(236,231,221,.16);--panel:rgba(13,12,11,.52)}
+  html,body{margin:0;height:100%;background:var(--bg);font-family:"IBM Plex Sans Thai","IBM Plex Sans",system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+  model-viewer{width:100%;height:100%;--poster-color:#0c0b0a}
+  body::after{content:"";position:fixed;left:0;right:0;bottom:0;height:180px;background:linear-gradient(0deg,rgba(0,0,0,.55),transparent);pointer-events:none}
+  .chip{position:fixed;z-index:2;color:var(--ink);background:var(--panel);-webkit-backdrop-filter:blur(16px) saturate(1.3);backdrop-filter:blur(16px) saturate(1.3);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13px;font-weight:500}
+  #back{top:calc(16px + env(safe-area-inset-top));left:16px;text-decoration:none;border-left:2px solid var(--accent);border-radius:0 8px 8px 0}
+  #tip{bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);text-align:center;max-width:82vw;font-family:"IBM Plex Mono","IBM Plex Sans Thai",ui-monospace,monospace;font-size:11px;font-weight:400;letter-spacing:.04em;line-height:1.5}
 </style>
 </head>
 <body>
 <model-viewer src="circuit.glb" ios-src="circuit.usdz"
   ar ar-modes="webxr scene-viewer quick-look"
-  camera-controls auto-rotate shadow-intensity="1" exposure="1.1"
+  camera-controls auto-rotate shadow-intensity="1" exposure="1.05"
   alt="วงจร ESP32 ต่อโมดูลเซนเซอร์บนเบรดบอร์ด"></model-viewer>
 <a id="back" class="chip" href="./">← กล้อง detect</a>
-<div id="tip" class="chip">เปิดบนมือถือแล้วแตะปุ่ม AR มุมขวาล่าง → วางวงจรบนโต๊ะจริงได้เลย</div>
+<div id="tip" class="chip">เปิดบนมือถือ แตะปุ่ม AR มุมขวาล่าง แล้ววางวงจรบนโต๊ะจริงได้เลย</div>
 </body>
 </html>
